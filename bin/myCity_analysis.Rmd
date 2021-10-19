@@ -1,0 +1,71 @@
+---
+title: 'My City in Time and Space'
+author: Tom Cairns
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(lubridate)
+```
+
+```{r}
+# Load the files
+trees_filename <- '../data/Oakland_Street_Trees.csv'
+trees <- read_csv(trees_filename)
+
+crime_filename <- '../data/90day_crime_0923_22x.csv'
+crime <- read_csv(crime_filename)
+```
+
+Basic summary of the trees.
+```{r}
+# Summary
+summary(trees)
+
+trees %>%
+    ggplot(aes(x = WELLWIDTH)) +
+    geom_histogram(binwidth = 1)
+
+trees %>%
+    ggplot(aes(x = WELLLENGTH)) +
+    geom_histogram(binwidth = 1)
+
+trees %>%
+    ggplot(aes(x = PAREAWIDTH)) +
+    geom_histogram(binwidth = 1)
+
+trees %>%
+    ggplot(aes(x = WELLWIDTH, y = WELLLENGTH)) +
+    geom_point(aes(color = SPECIES)) +
+    theme(legend.position = 'none', 
+          panel.background = element_blank(), 
+          axis.line = element_line())
+```
+
+Analyze the crime data set
+```{r}
+summary(crime)
+
+crime %>%
+    ggplot(aes(x = CRIMETYPE)) +
+    geom_bar() +
+    coord_flip()
+
+# Need to manually find the date
+crime$date = as.Date('01/01/1901', '%m/%d/%y')
+for (i in 1:nrow(crime)) {
+    print(paste('The value of i is:', i))
+    if (!is.na(crime[i, 'DATETIME'])) {
+        date <- str_split(crime[i, 'DATETIME'], ' ')[[1]][1]
+        Date <- as.Date(date, '%m/%d/%y')
+        crime[i, 'date']$date = Date
+    }
+}
+
+crime %>%
+    mutate(month = month(date),
+           day = day(date)) %>%
+    ggplot(aes(x = month)) +
+    geom_histogram(binwidth = 1)
+```
