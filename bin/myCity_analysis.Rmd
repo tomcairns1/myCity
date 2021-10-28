@@ -7,15 +7,13 @@ output: html_document
 ```{r}
 library(tidyverse)
 library(lubridate)
+library(leaflet)
 ```
 
 ```{r}
 # Load the files
-trees_filename <- '../data/Oakland_Street_Trees.csv'
+trees_filename <- '../data/Street_Tree_List.csv'
 trees <- read_csv(trees_filename)
-
-crime_filename <- '../data/90day_crime_0923_22x.csv'
-crime <- read_csv(crime_filename)
 ```
 
 Basic summary of the trees.
@@ -23,49 +21,104 @@ Basic summary of the trees.
 # Summary
 summary(trees)
 
+# Modify the columns
+trees <- trees %>%
+    mutate(genus = str_extract(qSpecies, '[A-Z|a-z]+(?=\\s)'),
+           species = str_extract(qSpecies, '(?<=\\s)[A-Z|a-z]+(?=\\s::)'),
+           date = mdy(str_extract(PlantDate, '[0-9|/]+(?=\\s)')),
+           day = day(date),
+           wday = wday(date, label = T),
+           month = month(date, label = T),
+           year = year(date)) 
+
+# Week day planted
 trees %>%
-    ggplot(aes(x = WELLWIDTH)) +
-    geom_histogram(binwidth = 1)
+    filter(!is.na(PlantDate)) %>%
+    ggplot(aes(x = wday)) +
+    geom_bar()
 
+# Month planted
 trees %>%
-    ggplot(aes(x = WELLLENGTH)) +
-    geom_histogram(binwidth = 1)
-
-trees %>%
-    ggplot(aes(x = PAREAWIDTH)) +
-    geom_histogram(binwidth = 1)
-
-trees %>%
-    ggplot(aes(x = WELLWIDTH, y = WELLLENGTH)) +
-    geom_point(aes(color = SPECIES)) +
-    theme(legend.position = 'none', 
-          panel.background = element_blank(), 
-          axis.line = element_line())
-```
-
-Analyze the crime data set
-```{r}
-summary(crime)
-
-crime %>%
-    ggplot(aes(x = CRIMETYPE)) +
-    geom_bar() +
-    coord_flip()
-
-# Need to manually find the date
-crime$date = as.Date('01/01/1901', '%m/%d/%y')
-for (i in 1:nrow(crime)) {
-    print(paste('The value of i is:', i))
-    if (!is.na(crime[i, 'DATETIME'])) {
-        date <- str_split(crime[i, 'DATETIME'], ' ')[[1]][1]
-        Date <- as.Date(date, '%m/%d/%y')
-        crime[i, 'date']$date = Date
-    }
-}
-
-crime %>%
-    mutate(month = month(date),
-           day = day(date)) %>%
+    filter(!is.na(PlantDate)) %>%
     ggplot(aes(x = month)) +
-    geom_histogram(binwidth = 1)
+    geom_bar(aes(fill = year))
+
+# Line chart for the number of trees planted 
+highlight_years <- trees %>%
+    filter(!is.na(PlantDate)) %>%
+    group_by(year, month) %>%
+    summarize(count = n()) %>%
+    filter(count > 600)
+
+highlight_years <- unique(highlight_years$year)
+    
+
+trees %>%
+    filter(!is.na(PlantDate)) %>%
+    group_by(year, month) %>%
+    summarize(count = n()) %>%
+    mutate(color = ifelse(year %in% highlight_years, as.character(year), 'grey'),
+           alpha = ifelse(color != 'grey', 1, 0.5)) %>%
+    ggplot(aes(x = month, y = count)) +
+    geom_line(aes(group = year, color = color, alpha = factor(alpha))) +
+    theme(panel.background = element_blank(), axis.line = element_line(),
+          legend.box.background = element_blank()) +
+    scale_x_discrete(expand = c(0, 0)) +
+    scale_y_continuous(expand = c(0, 0)) +
+    scale_color_manual(values = c('#050d5c', '#650061', '#a10057', '#cb2b44',
+                                  '#e26329', '#e49a03', '#d1d01d', 'grey')) +
+    labs(x = 'Month', y = 'Number of Trees Planted', 
+         title = 'Trees Planted Per Year') +
+    guides(alpha = F)
+
+# Find list of most_common genus
+most_common_genus <- trees %>%
+    filter(!is.na(species)) %>%
+    group_by(genus, species) %>%
+    summarize(count = n()) %>%
+    filter(count > 500) %>%
+    arrange(genus) %>%
+    group_by(genus) %>%
+    summarize(count = n()) %>%
+    filter(count > 1)
+
+most_common_genus <- most_common_genus$genus
+
+trees %>%
+    filter(!is.na(species)) %>%
+    group_by(genus, species) %>%
+    summarize(count = n()) %>%
+    filter(log(count) > 2.5) %>%
+    arrange(genus) %>%
+    ggplot(aes(x = species, fill = genus, y = log(count), group = genus)) +
+    geom_col(position = 'dodge2') +
+    # theme(panel.background = element_blank(), axis.line = element_line(),
+    #       axis.text = element_blank(), axis.title = element_blank(),
+    #       plot.margin = unit(rep(-1,4), "cm")) +
+    scale_y_continuous(expand = c(0, 0), limits = c(-100,100)) +
+    labs(title = 'Most Common Tree Genus', x = 'Genus') +
+    #coord_polar() +
+    theme_minimal()
+
+# Analyze by something else
+# zipcode 28859 has the most trees
+zip_28859 <- trees %>%
+    filter(`Zip Codes` == 28859) %>%
+    select(genus, Longitude, Latitude) %>%
+    mutate(highlight = ifelse(genus %in% most_common_genus, genus, 'grey'))
+
+color_palette <- colorFactor(
+    palette = 'Dark2',
+    domain = zip_28859$highlight
+)
+
+map <- leaflet(data = zip_28859) %>% 
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addCircleMarkers(lng = ~Longitude, lat = ~Latitude, radius = 1,
+                     color = ~color_palette(highlight))
+map
+# Map to display the trees (maybe pick a neighborhood)
+
 ```
+
+
