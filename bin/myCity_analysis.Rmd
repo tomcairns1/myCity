@@ -8,6 +8,7 @@ output: html_document
 library(tidyverse)
 library(lubridate)
 library(leaflet)
+library(RColorBrewer)
 ```
 
 ```{r}
@@ -30,19 +31,10 @@ trees <- trees %>%
            wday = wday(date, label = T),
            month = month(date, label = T),
            year = year(date)) 
+```
 
-# Week day planted
-trees %>%
-    filter(!is.na(PlantDate)) %>%
-    ggplot(aes(x = wday)) +
-    geom_bar()
-
-# Month planted
-trees %>%
-    filter(!is.na(PlantDate)) %>%
-    ggplot(aes(x = month)) +
-    geom_bar(aes(fill = year))
-
+## Line Chart for Number of Trees Planted Per Month and Year
+```{r}
 # Line chart for the number of trees planted 
 highlight_years <- trees %>%
     filter(!is.na(PlantDate)) %>%
@@ -51,26 +43,35 @@ highlight_years <- trees %>%
     filter(count > 600)
 
 highlight_years <- unique(highlight_years$year)
-    
 
-trees %>%
+trees_by_month <- trees %>%
     filter(!is.na(PlantDate)) %>%
     group_by(year, month) %>%
     summarize(count = n()) %>%
     mutate(color = ifelse(year %in% highlight_years, as.character(year), 'grey'),
-           alpha = ifelse(color != 'grey', 1, 0.5)) %>%
+           alpha = ifelse(color != 'grey', 1, 0.5))
+    
+# Visualize the line chart
+trees_by_month %>%
     ggplot(aes(x = month, y = count)) +
-    geom_line(aes(group = year, color = color, alpha = factor(alpha))) +
+    geom_line(data = trees_by_month[trees_by_month$color != 'grey',], 
+              aes(group = year, color = color)) +
+    geom_line(data = trees_by_month[trees_by_month$color == 'grey',], 
+              aes(group = year), color = 'grey', alpha = 0.5) +
     theme(panel.background = element_blank(), axis.line = element_line(),
           legend.box.background = element_blank()) +
     scale_x_discrete(expand = c(0, 0)) +
     scale_y_continuous(expand = c(0, 0)) +
-    scale_color_manual(values = c('#050d5c', '#650061', '#a10057', '#cb2b44',
-                                  '#e26329', '#e49a03', '#d1d01d', 'grey')) +
+    scale_color_brewer(palette = 'Set2') +
     labs(x = 'Month', y = 'Number of Trees Planted', 
-         title = 'Trees Planted Per Year') +
+         title = 'Trees Planted Per Year', color = 'Year') +
     guides(alpha = F)
+# Earliest date is 1955
+# Latest date is 2021
+```
 
+## Circular Bar Chart Showing the Number of Each Species
+```{r}
 # Find list of most_common genus
 most_common_genus <- trees %>%
     filter(!is.na(species)) %>%
@@ -84,22 +85,96 @@ most_common_genus <- trees %>%
 
 most_common_genus <- most_common_genus$genus
 
-trees %>%
-    filter(!is.na(species)) %>%
-    group_by(genus, species) %>%
-    summarize(count = n()) %>%
-    filter(log(count) > 2.5) %>%
-    arrange(genus) %>%
-    ggplot(aes(x = species, fill = genus, y = log(count), group = genus)) +
-    geom_col(position = 'dodge2') +
-    # theme(panel.background = element_blank(), axis.line = element_line(),
-    #       axis.text = element_blank(), axis.title = element_blank(),
-    #       plot.margin = unit(rep(-1,4), "cm")) +
-    scale_y_continuous(expand = c(0, 0), limits = c(-100,100)) +
-    labs(title = 'Most Common Tree Genus', x = 'Genus') +
-    #coord_polar() +
-    theme_minimal()
+# Create color palette
+color_palette <- colorFactor(
+    palette = 'Dark2',
+    domain = most_common_genus
+)
 
+# Create data frame for the circle chart data
+circle_chart_data <- trees %>%
+    filter(!is.na(species), genus %in% most_common_genus) %>%
+    group_by(genus, species) %>%
+    summarize(count = log(n())) %>%
+    filter(count > 2.5) %>%
+    arrange(genus)
+
+# Add Gaps in Data
+#------------------
+# code adapted from:
+# https://www.r-graph-gallery.com/297-circular-barplot-with-groups.html
+# Add empty rows to the dataframe
+empty_bar <- 4
+
+# Add lines to initial data set
+to_add <- data.frame(matrix(NA, empty_bar * length(unique(circle_chart_data$genus)), 
+                            ncol(circle_chart_data)))
+colnames(to_add) <- colnames(circle_chart_data)
+to_add$genus <- rep(levels(factor(circle_chart_data$genus)), each = empty_bar) # some error here
+rownames(to_add) <- seq(1:nrow(to_add))
+data <- rbind(circle_chart_data, to_add)
+data <- data %>% arrange(genus, count)
+data$id <- seq(1, nrow(data))
+
+# Get the name and the y position of each label
+label_data <- data
+number_of_bar <- nrow(label_data)
+angle <- 90 - 360 * (label_data$id - 0.5) / number_of_bar
+label_data$hjust <- ifelse(angle < -90, 1, 0)
+label_data$angle <- ifelse(angle < -90, angle+180, angle)
+
+# Prepare data frame for base lines
+base_data <- data %>%
+    group_by(genus) %>%
+    summarize(start = min(id), end = max(id) - empty_bar) %>%
+    rowwise() %>% # not sure what this does
+    mutate(title = mean(c(start, end)))
+
+# Prepare data frame for grid (scales)
+grid_data <- base_data
+grid_data$end <- grid_data$end[c(nrow(grid_data), 1:nrow(grid_data) - 1)] + 1
+grid_data$start <- grid_data$start - 1
+grid_data <- grid_data[-1,]
+
+data %>%
+    ggplot(aes(x = as.factor(id), fill = genus, y = count)) +
+    geom_bar(stat = 'identity') +
+    
+    # Add height lines
+    geom_segment(data = grid_data, aes(x = end, y = 2, xend = start, yend = 2),
+                 color = 'grey', alpha = 1, size = 0.3, inherit.aes = F) +
+    geom_segment(data = grid_data, aes(x = end, y = 4, xend = start, yend = 4),
+                 color = 'grey', alpha = 1, size = 0.3, inherit.aes = F) +
+    geom_segment(data = grid_data, aes(x = end, y = 6, xend = start, yend = 6),
+                 color = 'grey', alpha = 1, size = 0.3, inherit.aes = F) +
+    annotate('text', x = rep(max(data$id), 3), y = c(2, 4, 6), 
+             label = c('2', '4', '6'), color = 'grey', size = 3, angle = 0,
+             hjust = 2) +
+    coord_polar(start = 0) +
+    
+    # Change the theme
+    theme_minimal() +
+    theme(axis.title = element_blank(), axis.text = element_blank(),
+          panel.grid = element_blank(), plot.margin = unit(rep(-2, 4), 'cm')) +
+    scale_y_continuous(expand = c(0, 0), limits = c(-5,10)) +
+    labs(title = 'Most Common Tree Genus', x = 'Genus', fill = 'Genus') +
+    # geom_text(data = label_data, aes(x = id, y = count + 1, label = species,
+    #                                  hjust = hjust),
+    #           color = 'black', size = 2.5, angle = label_data$angle,
+    #           inherit.aes = F) +
+    scale_fill_brewer(palette = 'Dark2') #+
+    
+    # # Add base line information 
+    # geom_segment(data = base_data, aes(x = start, y = -5, xend = end, yend = -5),
+    #              color = 'black', alpha = 0.8, size = 0.6, inherit.aes = F) +
+    # geom_text(data = base_data, aes(x = title, y = -2, label = genus),
+    #           color = 'black', alpha = 0.8, size = 3, inherit.aes = F,
+    #           vjust = c(-1, 0, 0, 1, 0.5, 0, -0.5))
+```
+
+
+## Make Map Showing Tree Locations
+```{r}
 # Analyze by something else
 # zipcode 28859 has the most trees
 zip_28859 <- trees %>%
@@ -107,18 +182,21 @@ zip_28859 <- trees %>%
     select(genus, Longitude, Latitude) %>%
     mutate(highlight = ifelse(genus %in% most_common_genus, genus, 'grey'))
 
-color_palette <- colorFactor(
-    palette = 'Dark2',
-    domain = zip_28859$highlight
-)
+zip <- trees %>%
+    filter(`Zip Codes` == 29491) %>%
+    select(genus, Longitude, Latitude) %>%
+    mutate(highlight = ifelse(genus %in% most_common_genus, genus, 'grey'))
 
-map <- leaflet(data = zip_28859) %>% 
+map <- leaflet(data = zip) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
     addCircleMarkers(lng = ~Longitude, lat = ~Latitude, radius = 1,
                      color = ~color_palette(highlight))
 map
 # Map to display the trees (maybe pick a neighborhood)
 
+# 24th st is lined with Ficus trees
+# Guerrero street is lined with Acacia
+# Mission St is lined with Pittosporum
 ```
 
 
