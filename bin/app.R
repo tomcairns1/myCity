@@ -6,6 +6,8 @@ library(shiny)
 library(leaflet)
 library(tidyverse)
 library(lubridate)
+library(RColorBrewer)
+library(colorspace)
 
 # Load the data into the file
 trees_filename <- '../data/Street_Tree_List.csv'
@@ -48,14 +50,19 @@ ui <- pageWithSidebar(
         h3(textOutput('barCaption')),
         
         # Output: bar chart of the number of species within selected genus
-        h3(textOutput('genusBarChart')),
+        plotOutput('genusBarChart'),
         
         # Output: formatted text for the map caption
         h3(textOutput('mapCaption')),
-        tableOutput('table')
         
         # Output: Map of the selected genus
-        # plotOutput('genusPlot')
+        leafletOutput('genusPlot'),
+        
+        # Output: formatted text for line chart caption
+        h3(textOutput('lineChartCaption')),
+        
+        # Output: Plot of the planting history
+        plotOutput('linePlot')
     )
 )
 
@@ -71,14 +78,23 @@ server <- function(input, output) {
     # Filter the data so that it only shows the input genus
     trees.filtered <- reactive({
         trees %>%
-            filter(genus == input$genus) %>%
-            select(genus, species, Longitude, Latitude) %>%
-            head()
+            filter(genus == input$genus, !is.na(species)) %>%
+            select(genus, species, Longitude, Latitude, year)
     })
     
-    # Table to display (for now)
-    output$table <- renderTable({
-        trees.filtered()
+    # The number of unique species
+    # unique_species <- reactive({
+    #     length(unique(trees.filtered())$species)
+    # })
+    
+    # Choose a color palette for the data
+    col_palette <- reactive({
+        if (length(unique(trees.filtered())$species) <= 12) {
+            brewer.pal(length(unique(trees.filtered())$species), 'Set3')
+        } else {
+            colorRampPalette(brewer.pal(12,'Set3'))(length(unique(trees.filtered())$species))
+        }
+
     })
     
     
@@ -103,25 +119,64 @@ server <- function(input, output) {
         captionText()
     })
     
+    # Caption for line chart
+    lineChartText <- reactive({
+        paste('History of', input$genus, 'Trees Planted')
+    })
+    
+    output$lineChartCaption <- renderText({
+        lineChartText()
+    })
+    
     
     #################
     # Visualizations
     #################
     # Create the bar chart of the genus
-    output$genusBarChart <- renderPlot(
+    output$genusBarChart <- renderPlot({
+        if (nrow(trees.filtered() > 0)) {
+            trees.filtered() %>%
+                group_by(species) %>%
+                summarize(count = n()) %>%
+                
+                # Visualization
+                ggplot(aes(x = reorder(species, -count), y = count, 
+                           fill = species)) +
+                geom_col() +
+                theme(panel.background = element_blank(), 
+                      axis.line = element_line()) +
+                labs(x = 'Species Name', y = 'Count') +
+                scale_x_discrete(expand = c(0, 0)) +
+                scale_y_continuous(expand = c(0, 0)) +
+                scale_fill_manual(values = col_palette()) +
+                coord_flip()
+        }
+    })
+    
+    # Create the map showing the plots
+    output$genusPlot <- renderLeaflet({
+        leaflet(data = trees.filtered()) %>%
+            addProviderTiles(providers$CartoDB.Positron) %>%
+            addCircleMarkers(lng = ~Longitude, lat = ~Latitude, radius = 1,
+                             popup = ~as.character(species),
+                             color = col_palette())
+    })
+    
+    # Create a line chart showing time 
+    output$linePlot <- renderPlot({
         trees.filtered() %>%
-            ggplot(aes(x = species)) +
-            geom_bar()
-    )
-    
-    # # Create the map showing the plots
-    # output$genusPlot <- renderPlot({
-    #     leaflet(data = trees.filtered) %>% 
-    #         addProviderTiles(providers$CartoDB.Positron) %>%
-    #         addCircleMarkers(lng = ~Longitude, lat = ~Latitude, radius = 1)
-    # })
-    
-    
+            filter(!is.na(year)) %>%
+            group_by(year) %>%
+            summarize(count = n()) %>%
+            ggplot(aes(x = year, y = count)) +
+            geom_line(color = 'steelblue') +
+            theme(panel.background = element_blank(), 
+                  axis.line = element_line()) +
+            scale_x_continuous(expand = c(0, 0)) +
+            scale_y_continuous(expand = c(0, 0)) +
+            labs(x = 'Year', y = 'Number of Trees Planted')
+    })
 }
 
 shinyApp(ui, server)
+
