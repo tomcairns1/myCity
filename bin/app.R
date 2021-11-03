@@ -89,12 +89,11 @@ server <- function(input, output) {
     
     # Choose a color palette for the data
     col_palette <- reactive({
-        if (length(unique(trees.filtered())$species) <= 12) {
-            brewer.pal(length(unique(trees.filtered())$species), 'Set3')
-        } else {
-            colorRampPalette(brewer.pal(12,'Set3'))(length(unique(trees.filtered())$species))
-        }
-
+        # if (length(unique(trees.filtered())$species) <= 12) {
+        brewer.pal(length(unique(trees.filtered())$species), 'Set3')
+        # } else {
+        #     colorRampPalette(brewer.pal(12,'Set3'))(length(unique(trees.filtered())$species))
+        # }
     })
     
     
@@ -145,7 +144,7 @@ server <- function(input, output) {
                 geom_col() +
                 theme(panel.background = element_blank(), 
                       axis.line = element_line()) +
-                labs(x = 'Species Name', y = 'Count') +
+                labs(x = 'Species Name', y = 'Count', fill = '') +
                 scale_x_discrete(expand = c(0, 0)) +
                 scale_y_continuous(expand = c(0, 0)) +
                 scale_fill_manual(values = col_palette()) +
