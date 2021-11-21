@@ -143,11 +143,10 @@ server <- function(input, output) {
                            fill = species)) +
                 geom_col() +
                 theme(panel.background = element_blank(), 
-                      axis.line = element_line()) +
+                      axis.line = element_line(), legend.position = 'none') +
                 labs(x = 'Species Name', y = 'Count', fill = '') +
                 scale_x_discrete(expand = c(0, 0)) +
                 scale_y_continuous(expand = c(0, 0)) +
-                scale_fill_manual(values = col_palette()) +
                 coord_flip()
         }
     })
@@ -158,7 +157,7 @@ server <- function(input, output) {
             addProviderTiles(providers$CartoDB.Positron) %>%
             addCircleMarkers(lng = ~Longitude, lat = ~Latitude, radius = 1,
                              popup = ~as.character(species),
-                             color = col_palette())
+                             color = 'steelblue')
     })
     
     # Create a line chart showing time 
