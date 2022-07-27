@@ -11,6 +11,7 @@ library(colorspace)
 library(scales)
 
 # Load the data into the file
+# trees_filename <- 'https://data.sfgov.org/api/views/tkzw-k3nq/rows.csv?accessType=DOWNLOAD'
 trees_filename <- '../data/Street_Tree_List.csv'
 trees <- read_csv(trees_filename)
 
@@ -88,32 +89,28 @@ server <- function(input, output) {
         hue_pal()(length(unique(trees.filtered()$species)))
     })
     
+    # Set the color palette for leaflet
+    pal <- reactive({
+        colorFactor(
+            palette = col_palette(),
+            domain = trees.filtered()$species
+        )
+    })
+    
     # Count and order by species
     ordered_species <- reactive({
         trees.filtered() %>%
+            filter(!is.na(species)) %>%
             group_by(species) %>%
             summarize(count = n()) %>%
             arrange(count) %>%
-            mutate(color = col_palette())
+            mutate(color = pal()(species)) # if I can get this to work I think I'm good
     })
     
     # Create a new df containing the color of each tree
     full_trees <- reactive({
         trees.filtered() %>%
-            mutate(sp = species,
-                   color = ifelse(sp %in% ordered_species()$species,
-                                  filter(ordered_species(), species %in% sp)$color,
-                                  'grey'))
-    })
-    
-    
-    
-    # Choose a color palette for the data
-    pal <- reactive({
-        colorFactor(
-            palette = hue_pal()(nrow(ordered_species()$species)),
-            domain = ordered_species()$species
-        )
+            left_join(ordered_species(), by = 'species')
     })
     
     
@@ -155,11 +152,6 @@ server <- function(input, output) {
     output$genusBarChart <- renderPlot({
         if (nrow(trees.filtered() > 0)) {
             full_trees() %>%
-                select(species, color) %>%
-                # group_by(species) %>%
-                # summarize(count = n()) %>%
-                # arrange(count) %>%
-                # mutate(color = ordered_species()$color) %>%
                 
                 # Visualization
                 ggplot(aes(x = species, fill = color)) +
@@ -180,8 +172,7 @@ server <- function(input, output) {
         leaflet(data = full_trees()) %>%
             addProviderTiles(providers$CartoDB.Positron) %>%
             addCircleMarkers(lng = ~Longitude, lat = ~Latitude, radius = 2,
-                             popup = ~species,
-                             color = ~color)
+                             popup = ~species, color = ~pal(species))
     })
     
     # Create a line chart showing time 
