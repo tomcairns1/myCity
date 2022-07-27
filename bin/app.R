@@ -8,6 +8,7 @@ library(tidyverse)
 library(lubridate)
 library(RColorBrewer)
 library(colorspace)
+library(scales)
 
 # Load the data into the file
 trees_filename <- '../data/Street_Tree_List.csv'
@@ -82,18 +83,37 @@ server <- function(input, output) {
             select(genus, species, Longitude, Latitude, year)
     })
     
-    # The number of unique species
-    # unique_species <- reactive({
-    #     length(unique(trees.filtered())$species)
-    # })
+    # Create a color palette based on the number of species    
+    col_palette <- reactive({
+        hue_pal()(length(unique(trees.filtered()$species)))
+    })
+    
+    # Count and order by species
+    ordered_species <- reactive({
+        trees.filtered() %>%
+            group_by(species) %>%
+            summarize(count = n()) %>%
+            arrange(count) %>%
+            mutate(color = col_palette())
+    })
+    
+    # Create a new df containing the color of each tree
+    full_trees <- reactive({
+        trees.filtered() %>%
+            mutate(sp = species,
+                   color = ifelse(sp %in% ordered_species()$species,
+                                  filter(ordered_species(), species %in% sp)$color,
+                                  'grey'))
+    })
+    
+    
     
     # Choose a color palette for the data
-    col_palette <- reactive({
-        # if (length(unique(trees.filtered())$species) <= 12) {
-        brewer.pal(length(unique(trees.filtered())$species), 'Set3')
-        # } else {
-        #     colorRampPalette(brewer.pal(12,'Set3'))(length(unique(trees.filtered())$species))
-        # }
+    pal <- reactive({
+        colorFactor(
+            palette = hue_pal()(nrow(ordered_species()$species)),
+            domain = ordered_species()$species
+        )
     })
     
     
@@ -134,16 +154,20 @@ server <- function(input, output) {
     # Create the bar chart of the genus
     output$genusBarChart <- renderPlot({
         if (nrow(trees.filtered() > 0)) {
-            trees.filtered() %>%
-                group_by(species) %>%
-                summarize(count = n()) %>%
+            full_trees() %>%
+                select(species, color) %>%
+                # group_by(species) %>%
+                # summarize(count = n()) %>%
+                # arrange(count) %>%
+                # mutate(color = ordered_species()$color) %>%
                 
                 # Visualization
-                ggplot(aes(x = reorder(species, -count), y = count, 
-                           fill = species)) +
-                geom_col() +
+                ggplot(aes(x = species, fill = color)) +
+                geom_bar() +
                 theme(panel.background = element_blank(), 
-                      axis.line = element_line(), legend.position = 'none') +
+                      axis.line = element_line(), legend.position = 'none',
+                      axis.text = element_text(size = 17),
+                      axis.title = element_text(size = 20)) +
                 labs(x = 'Species Name', y = 'Count', fill = '') +
                 scale_x_discrete(expand = c(0, 0)) +
                 scale_y_continuous(expand = c(0, 0)) +
@@ -153,11 +177,11 @@ server <- function(input, output) {
     
     # Create the map showing the plots
     output$genusPlot <- renderLeaflet({
-        leaflet(data = trees.filtered()) %>%
+        leaflet(data = full_trees()) %>%
             addProviderTiles(providers$CartoDB.Positron) %>%
-            addCircleMarkers(lng = ~Longitude, lat = ~Latitude, radius = 1,
-                             popup = ~as.character(species),
-                             color = 'steelblue')
+            addCircleMarkers(lng = ~Longitude, lat = ~Latitude, radius = 2,
+                             popup = ~species,
+                             color = ~color)
     })
     
     # Create a line chart showing time 
